@@ -68,6 +68,14 @@ type eventData struct {
 	Permissions   int            `json:",omitempty"`
 	IsOrganizer   int            `json:",omitempty"`
 
+	// Color is the event's colour, as a palette hex. Like the notifications
+	// it travels outside the encrypted cards: that is where Proton keeps it,
+	// and a COLOR line encrypted into a card is one the web app never reads.
+	// Unlike the notifications it is omitted when the client named none —
+	// on an update that keeps the colour the event already has, which is
+	// what a client that knows nothing of event colours should cause.
+	Color string `json:"Color,omitempty"`
+
 	// AddedProtonAttendees hands the event's shared session key to guests who
 	// hold a Proton account, and RemovedAttendeeAddresses names the guests who
 	// have just been dropped. Both are keyed by address rather than by token:
@@ -405,8 +413,11 @@ func buildEvent(ctx context.Context, event *ical.Event, keys *proton.CalendarKey
 	data := &eventData{Permissions: 1, IsOrganizer: 1}
 
 	// Properties we do not recognise are encrypted rather than published:
-	// hiding what we do not understand is the safe default.
+	// hiding what we do not understand is the safe default. COLOR is
+	// recognised but belongs to no card: it is carried beside the event
+	// instead, below.
 	known := append(append(append(append(append([]string{}, sharedSigned...), sharedEncrypted...), calendarSigned...), calendarEncrypted...), attendeeEncrypted...)
+	known = append(known, "COLOR")
 	extra := unknownProps(event, known)
 
 	// IsOrganizer stays 1: carbonate only writes events on calendars it owns.
@@ -442,6 +453,7 @@ func buildEvent(ctx context.Context, event *ical.Event, keys *proton.CalendarKey
 	data.AttendeesEventContent = guests.cards
 	data.Attendees = guests.clear
 	data.Notifications = alarmsOf(event)
+	data.Color = colorOf(event)
 
 	if err := shareSessionKey(ctx, data, guests, existing, keys, lookup); err != nil {
 		return nil, err
@@ -899,6 +911,33 @@ func pick(event *ical.Event, names []string) string {
 	}
 
 	return buf.String()
+}
+
+// colorOf reads the event's colour, moved to the nearest colour Proton
+// offers — the web app never sends anything off-palette, so a client's
+// colour is not trusted to be accepted as it is. It returns "" when the
+// client named no colour, or an empty one: the caller then leaves the
+// colour out of the write entirely, and Proton keeps the event's own.
+//
+// A colour we cannot read gets the same answer. RFC 7986 §5.9 asks for a
+// CSS3 colour name rather than hex, so "turquoise" is what a client going by
+// the book sends, and parseColor makes nothing of it. Falling back to
+// DefaultColor there would repaint an event the user had coloured in Proton's
+// own apps, silently and with no record of the colour it had; leaving a
+// decoration we cannot read alone is the smaller loss. A calendar being
+// created has no colour yet, which is why DefaultColor is right for that and
+// not for this.
+func colorOf(event *ical.Event) string {
+	prop := event.Props.Get("COLOR")
+	if prop == nil || strings.TrimSpace(prop.Value) == "" {
+		return ""
+	}
+
+	if _, _, _, ok := parseColor(prop.Value); !ok {
+		return ""
+	}
+
+	return ClosestColor(prop.Value)
 }
 
 func unknownProps(event *ical.Event, known []string) []string {

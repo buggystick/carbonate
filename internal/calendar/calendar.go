@@ -41,6 +41,11 @@ type Event struct {
 	// Alarms are the reminders Proton keeps outside the encrypted parts.
 	Alarms []notification
 
+	// Color is the event's colour, a palette hex, which Proton also keeps
+	// outside the encrypted parts. Empty when the event has no colour of its
+	// own and takes the calendar's.
+	Color string
+
 	// RecurrenceID identifies which occurrence of a series this event
 	// replaces. Zero for an ordinary event or for the series itself.
 	RecurrenceID int64
@@ -66,6 +71,11 @@ type rawEvent struct {
 	// UID. go-proton-api does not decode it, and without it every occurrence
 	// of a series looks like the same event.
 	RecurrenceID int64
+
+	// Color is the event's colour as a palette hex, or nil when the event
+	// has none. go-proton-api does not decode this either: left out, the
+	// colour Proton shows is silently dropped on its way to the client.
+	Color *string
 }
 
 // multiValued lists iCalendar properties that may legitimately appear more
@@ -143,6 +153,12 @@ func (e Event) component() []string {
 		switch name(line) {
 		case "BEGIN", "END", "VERSION", "PRODID", "CALSCALE", "METHOD":
 			continue
+		case "COLOR":
+			// A colour stored in a part is a leftover from a write that had
+			// nowhere else to put it. Proton never reads it back — the
+			// colour it shows lives beside the event — so serving the part's
+			// copy would hand the client a second, wrong answer.
+			continue
 		}
 
 		key := name(line)
@@ -158,6 +174,13 @@ func (e Event) component() []string {
 	}
 
 	out := append([]string{"BEGIN:VEVENT"}, body...)
+
+	// The colour lives outside the parts too, so it is put back the same way.
+	// It goes ahead of the alarms: RFC 5545 §3.6.1 puts every property of an
+	// event before its VALARM components, and a strict parser holds us to it.
+	if e.Color != "" {
+		out = append(out, "COLOR:"+e.Color)
+	}
 
 	// Reminders live outside the encrypted parts, so they are put back here
 	// rather than arriving with the rest of the properties.
@@ -361,6 +384,10 @@ func decode(raw rawEvent, calKR, addrKR *crypto.KeyRing) (Event, error) {
 		Modified:     time.Unix(raw.LastEditTime, 0),
 		FullDay:      bool(raw.FullDay),
 		Attendees:    len(raw.Attendees),
+	}
+
+	if raw.Color != nil {
+		event.Color = *raw.Color
 	}
 
 	// Shared and attendee parts are encrypted under the shared key packet;

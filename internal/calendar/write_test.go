@@ -90,6 +90,57 @@ func TestUnknownPropertiesAreEncrypted(t *testing.T) {
 	}
 }
 
+const coloredEvent = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//carbonate//test//EN
+BEGIN:VEVENT
+UID:colored@carbonate.local
+DTSTAMP:20260914T180000Z
+DTSTART:20260916T140000Z
+DTEND:20260916T150000Z
+SUMMARY:Painted
+COLOR:#EC3E7C
+END:VEVENT
+END:VCALENDAR
+`
+
+// A palette colour a client names is the colour the event is written with.
+func TestColorOfReadsPaletteColor(t *testing.T) {
+	if got := colorOf(parse(t, coloredEvent)); got != "#EC3E7C" {
+		t.Errorf("colorOf = %q, want #EC3E7C", got)
+	}
+}
+
+// A colour off the palette is moved to the nearest one Proton offers,
+// rather than sent as it is and refused — or worse, stored nowhere.
+func TestColorOfMovesOffPaletteColorToNearest(t *testing.T) {
+	event := parse(t, strings.Replace(coloredEvent, "#EC3E7C", "#FF0000", 1))
+
+	if got := colorOf(event); got != "#C44800" {
+		t.Errorf("colorOf = %q, want #C44800, the palette's nearest to red", got)
+	}
+}
+
+// A colour named rather than spelled in hex — which is what RFC 7986 asks
+// for — is one we cannot place on the palette. It is left out of the write
+// rather than guessed at, so an event coloured in Proton's own apps keeps
+// the colour it has.
+func TestColorOfIgnoresAColorItCannotRead(t *testing.T) {
+	event := parse(t, strings.Replace(coloredEvent, "#EC3E7C", "turquoise", 1))
+
+	if got := colorOf(event); got != "" {
+		t.Errorf("colorOf = %q, want \"\"", got)
+	}
+}
+
+// No colour named means no colour written: the field is left out of the
+// write, and an update keeps the colour the event already has.
+func TestColorOfUncoloredEvent(t *testing.T) {
+	if got := colorOf(parse(t, fullEvent)); got != "" {
+		t.Errorf("colorOf = %q, want \"\"", got)
+	}
+}
+
 // Proton expects a card carrying nothing but UID and DTSTAMP to be omitted,
 // not sent as an empty encrypted blob.
 func TestPickOmitsCardWithoutSubstance(t *testing.T) {

@@ -1,6 +1,7 @@
 package calendar
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -43,6 +44,90 @@ func testEvent() Event {
 	e.Properties = append(e.Properties, properties(encryptedPart())...)
 
 	return e
+}
+
+// The colour Proton keeps beside an event must reach the client as COLOR.
+func TestICSCarriesTheEventsOwnColor(t *testing.T) {
+	e := testEvent()
+	e.Color = "#EC3E7C"
+
+	got := e.ICS()
+	if n := strings.Count(got, "COLOR:#EC3E7C"); n != 1 {
+		t.Errorf("COLOR appears %d times, want 1\n%s", n, got)
+	}
+}
+
+// RFC 5545 §3.6.1 puts an event's properties before its VALARM components,
+// so a colour served next to a reminder has to come first.
+func TestICSPutsColorBeforeTheAlarms(t *testing.T) {
+	e := testEvent()
+	e.Color = "#EC3E7C"
+	e.Alarms = []notification{{Type: notifyDevice, Trigger: "-PT15M"}}
+
+	got := e.ICS()
+
+	color := strings.Index(got, "COLOR:")
+	alarm := strings.Index(got, "BEGIN:VALARM")
+
+	if alarm < 0 {
+		t.Fatalf("no alarm served\n%s", got)
+	}
+
+	if color < 0 {
+		t.Fatalf("no colour served\n%s", got)
+	}
+
+	if color > alarm {
+		t.Errorf("COLOR follows the VALARM, want it before\n%s", got)
+	}
+}
+
+// A COLOR line stored in a part is not the colour Proton shows, and must
+// not reach the client alongside — or instead of — the event's own.
+func TestICSIgnoresColorStoredInAPart(t *testing.T) {
+	e := testEvent()
+	e.Properties = append(e.Properties, "COLOR:orange")
+	e.Color = "#1DA583"
+
+	got := e.ICS()
+	if strings.Contains(got, "COLOR:orange") {
+		t.Errorf("colour stored in a part was served\n%s", got)
+	}
+
+	if n := strings.Count(got, "COLOR:"); n != 1 {
+		t.Errorf("COLOR appears %d times, want 1\n%s", n, got)
+	}
+}
+
+// An event with no colour of its own gets no COLOR line: the client then
+// falls back to the calendar's colour, as Proton's own apps do.
+func TestICSWithoutColorHasNoColorLine(t *testing.T) {
+	got := testEvent().ICS()
+	if strings.Contains(got, "COLOR") {
+		t.Errorf("colourless event was served a COLOR line\n%s", got)
+	}
+}
+
+// Proton sends the colour beside the event, as a palette hex or as null.
+// go-proton-api decodes neither, so rawEvent has to.
+func TestRawEventDecodesColor(t *testing.T) {
+	var raw rawEvent
+	if err := json.Unmarshal([]byte(`{"Color":"#EC3E7C"}`), &raw); err != nil {
+		t.Fatalf("unmarshalling: %v", err)
+	}
+
+	if raw.Color == nil || *raw.Color != "#EC3E7C" {
+		t.Errorf("colour decoded as %v, want #EC3E7C", raw.Color)
+	}
+
+	var bare rawEvent
+	if err := json.Unmarshal([]byte(`{"Color":null}`), &bare); err != nil {
+		t.Fatalf("unmarshalling: %v", err)
+	}
+
+	if bare.Color != nil {
+		t.Errorf("null colour decoded as %q, want nil", *bare.Color)
+	}
 }
 
 func TestICSMergesPartsIntoOneEvent(t *testing.T) {
