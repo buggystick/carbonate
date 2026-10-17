@@ -919,13 +919,21 @@ func pick(event *ical.Event, names []string) string {
 // client named no colour, or an empty one: the caller then leaves the
 // colour out of the write entirely, and Proton keeps the event's own.
 //
-// A colour named rather than written as hex, as some clients send, cannot
-// be read by parseColor and lands on DefaultColor. That is the same answer
-// a calendar colour gets, and it is at least a colour the user can see and
-// change, rather than a write refused over a decoration.
+// A colour we cannot read gets the same answer. RFC 7986 §5.9 asks for a
+// CSS3 colour name rather than hex, so "turquoise" is what a client going by
+// the book sends, and parseColor makes nothing of it. Falling back to
+// DefaultColor there would repaint an event the user had coloured in Proton's
+// own apps, silently and with no record of the colour it had; leaving a
+// decoration we cannot read alone is the smaller loss. A calendar being
+// created has no colour yet, which is why DefaultColor is right for that and
+// not for this.
 func colorOf(event *ical.Event) string {
 	prop := event.Props.Get("COLOR")
 	if prop == nil || strings.TrimSpace(prop.Value) == "" {
+		return ""
+	}
+
+	if _, _, _, ok := parseColor(prop.Value); !ok {
 		return ""
 	}
 

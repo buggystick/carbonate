@@ -121,6 +121,18 @@ func TestColorOfMovesOffPaletteColorToNearest(t *testing.T) {
 	}
 }
 
+// A colour named rather than spelled in hex — which is what RFC 7986 asks
+// for — is one we cannot place on the palette. It is left out of the write
+// rather than guessed at, so an event coloured in Proton's own apps keeps
+// the colour it has.
+func TestColorOfIgnoresAColorItCannotRead(t *testing.T) {
+	event := parse(t, strings.Replace(coloredEvent, "#EC3E7C", "turquoise", 1))
+
+	if got := colorOf(event); got != "" {
+		t.Errorf("colorOf = %q, want \"\"", got)
+	}
+}
+
 // No colour named means no colour written: the field is left out of the
 // write, and an update keeps the colour the event already has.
 func TestColorOfUncoloredEvent(t *testing.T) {

@@ -175,14 +175,16 @@ func (e Event) component() []string {
 
 	out := append([]string{"BEGIN:VEVENT"}, body...)
 
-	// Reminders live outside the encrypted parts, so they are put back here
-	// rather than arriving with the rest of the properties.
-	out = append(out, alarmLines(e.Alarms, e.Summary())...)
-
 	// The colour lives outside the parts too, so it is put back the same way.
+	// It goes ahead of the alarms: RFC 5545 §3.6.1 puts every property of an
+	// event before its VALARM components, and a strict parser holds us to it.
 	if e.Color != "" {
 		out = append(out, "COLOR:"+e.Color)
 	}
+
+	// Reminders live outside the encrypted parts, so they are put back here
+	// rather than arriving with the rest of the properties.
+	out = append(out, alarmLines(e.Alarms, e.Summary())...)
 
 	return append(out, "END:VEVENT")
 }

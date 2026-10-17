@@ -57,6 +57,31 @@ func TestICSCarriesTheEventsOwnColor(t *testing.T) {
 	}
 }
 
+// RFC 5545 §3.6.1 puts an event's properties before its VALARM components,
+// so a colour served next to a reminder has to come first.
+func TestICSPutsColorBeforeTheAlarms(t *testing.T) {
+	e := testEvent()
+	e.Color = "#EC3E7C"
+	e.Alarms = []notification{{Type: notifyDevice, Trigger: "-PT15M"}}
+
+	got := e.ICS()
+
+	color := strings.Index(got, "COLOR:")
+	alarm := strings.Index(got, "BEGIN:VALARM")
+
+	if alarm < 0 {
+		t.Fatalf("no alarm served\n%s", got)
+	}
+
+	if color < 0 {
+		t.Fatalf("no colour served\n%s", got)
+	}
+
+	if color > alarm {
+		t.Errorf("COLOR follows the VALARM, want it before\n%s", got)
+	}
+}
+
 // A COLOR line stored in a part is not the colour Proton shows, and must
 // not reach the client alongside — or instead of — the event's own.
 func TestICSIgnoresColorStoredInAPart(t *testing.T) {
